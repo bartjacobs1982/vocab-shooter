@@ -79,7 +79,7 @@
         function App() {
             const [vocabData, setVocabData] = useState([]);
             // Replace with your published Google Sheet CSV URL
-            const sheetUrl = "YOUR_GOOGLE_SHEET_CSV_URL"; 
+            const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS5AyynEyE5XLtxjJI7mfIV7RxbFiOIPbLi35E4pT6-ZX5Jpkfokv3Hqi--PVV2xUSLBxf3Tcr8lEQy/pub?gid=0&single=true&output=csv"; 
 
             useEffect(() => {
                 Papa.parse(sheetUrl, {
