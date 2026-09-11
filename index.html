@@ -2,38 +2,61 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <!-- Crucial for mobile browser games to prevent zooming -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vocab Shooter</title>
-    
+    <title>Frans-Nederlands Vocab Shooter</title>
     <style>
+        * { 
+            box-sizing: border-box; 
+            user-select: none; 
+            -webkit-user-select: none; 
+        }
         body { 
             margin: 0; 
             overflow: hidden; 
-            background: #111; 
+            background: #0d0e15; 
             color: #fff; 
-            font-family: sans-serif; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            touch-action: none;
         }
         canvas { 
             display: block; 
         }
         .hud { 
             position: absolute; 
-            top: 20px; 
+            top: 15px; 
+            left: 0;
             width: 100%; 
             text-align: center; 
-            pointer-events: none; /* Lets touches pass through to the canvas */
+            pointer-events: none;
+            z-index: 10;
+        }
+        .prompt-label { 
+            font-size: 13px; 
+            color: #a0aec0; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+        }
+        .prompt-word { 
+            font-size: 26px; 
+            font-weight: bold; 
+            color: #63b3ed; 
+            margin-top: 4px; 
+            text-shadow: 0 0 10px rgba(99, 179, 237, 0.4);
+        }
+        .score-board { 
+            position: absolute; 
+            top: 15px; 
+            right: 20px; 
+            font-size: 18px; 
+            font-weight: bold; 
+            color: #48bb78; 
+            z-index: 10;
         }
     </style>
 
-    <!-- React & ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    
-    <!-- Babel to compile JSX in the browser -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- PapaParse to read the Google Sheet CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 </head>
 <body>
@@ -42,43 +65,188 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- CORE GAME LOOP ---
-        function GameCanvas({ vocabulary }) {
+        function VocabShooter({ vocabulary }) {
             const canvasRef = useRef(null);
+            const [currentQuestion, setCurrentQuestion] = useState(null);
+            const [score, setScore] = useState(0);
+
+            const gameState = useRef({
+                playerX: window.innerWidth / 2,
+                bullets: [],
+                targets: [],
+                currentQuestion: null
+            });
+
+            // Prepare a round with 1 French word, its Dutch answer, and 3 incorrect choices
+            const setupNewRound = (data) => {
+                if (!data || data.length < 4) return;
+                
+                const randomIndex = Math.floor(Math.random() * data.length);
+                const correctItem = data[randomIndex];
+                
+                const distractors = [];
+                while (distractors.length < 3) {
+                    const rand = data[Math.floor(Math.random() * data.length)];
+                    if (rand.Dutch !== correctItem.Dutch && !distractors.includes(rand.Dutch)) {
+                        distractors.push(rand.Dutch);
+                    }
+                }
+
+                const options = [correctItem.Dutch, ...distractors].sort(() => Math.random() - 0.5);
+
+                const question = {
+                    french: correctItem.French,
+                    correctDutch: correctItem.Dutch,
+                    options: options
+                };
+
+                setCurrentQuestion(question);
+                gameState.current.currentQuestion = question;
+
+                // Position 4 falling targets across screen width
+                const columnWidth = window.innerWidth / 4;
+
+                gameState.current.targets = options.map((text, index) => ({
+                    x: (index * columnWidth) + (columnWidth / 2),
+                    y: 70,
+                    text: text,
+                    isCorrect: text === correctItem.Dutch,
+                    width: Math.min(columnWidth - 10, 85),
+                    height: 40,
+                    speed: 0.4
+                }));
+            };
+
+            useEffect(() => {
+                setupNewRound(vocabulary);
+            }, [vocabulary]);
 
             useEffect(() => {
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
-                let animationFrameId;
+                let animationId;
 
-                // Insert your shoot-'em-up canvas game loop here
+                // Mobile touch and drag controls
+                const handleTouchMove = (e) => {
+                    if (e.touches.length > 0) {
+                        gameState.current.playerX = e.touches[0].clientX;
+                    }
+                };
+
+                const handleShoot = (e) => {
+                    if (e.type === 'touchstart') {
+                        gameState.current.playerX = e.touches[0].clientX;
+                    }
+                    gameState.current.bullets.push({
+                        x: gameState.current.playerX,
+                        y: window.innerHeight - 60,
+                        speed: 8
+                    });
+                };
+
+                window.addEventListener('touchmove', handleTouchMove);
+                window.addEventListener('touchstart', handleShoot);
+                window.addEventListener('click', handleShoot);
+
+                // Main Render Loop
                 const render = () => {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    
-                    // Example placeholder: Draw player ship
-                    ctx.fillStyle = '#00ff00';
-                    ctx.fillRect(canvas.width / 2 - 15, canvas.height - 50, 30, 30);
-                    
-                    animationFrameId = requestAnimationFrame(render);
+                    const state = gameState.current;
+
+                    // Draw Cannon/Ship
+                    ctx.fillStyle = '#63b3ed';
+                    ctx.beginPath();
+                    ctx.moveTo(state.playerX, window.innerHeight - 60);
+                    ctx.lineTo(state.playerX - 18, window.innerHeight - 25);
+                    ctx.lineTo(state.playerX + 18, window.innerHeight - 25);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Update & Draw Laser Bullets
+                    ctx.fillStyle = '#f6ad55';
+                    for (let i = state.bullets.length - 1; i >= 0; i--) {
+                        const b = state.bullets[i];
+                        b.y -= b.speed;
+                        ctx.beginPath();
+                        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        if (b.y < 0) state.bullets.splice(i, 1);
+                    }
+
+                    // Update & Draw Falling Word Targets
+                    state.targets.forEach((target) => {
+                        target.y += target.speed;
+
+                        ctx.fillStyle = '#2d3748';
+                        ctx.strokeStyle = '#4a5568';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.roundRect(target.x - target.width/2, target.y, target.width, target.height, 8);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 12px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(target.text, target.x, target.y + 24);
+                    });
+
+                    // Collision Detection: Bullet Hits Target
+                    for (let bIndex = state.bullets.length - 1; bIndex >= 0; bIndex--) {
+                        const b = state.bullets[bIndex];
+                        for (let tIndex = 0; tIndex < state.targets.length; tIndex++) {
+                            const t = state.targets[tIndex];
+
+                            if (
+                                b.x > t.x - t.width/2 &&
+                                b.x < t.x + t.width/2 &&
+                                b.y > t.y &&
+                                b.y < t.y + t.height
+                            ) {
+                                state.bullets.splice(bIndex, 1);
+                                if (t.isCorrect) {
+                                    setScore(s => s + 10);
+                                    setupNewRound(vocabulary);
+                                } else {
+                                    setScore(s => Math.max(0, s - 5));
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    animationId = requestAnimationFrame(render);
                 };
+
                 render();
 
-                return () => cancelAnimationFrame(animationFrameId);
+                return () => {
+                    cancelAnimationFrame(animationId);
+                    window.removeEventListener('touchmove', handleTouchMove);
+                    window.removeEventListener('touchstart', handleShoot);
+                    window.removeEventListener('click', handleShoot);
+                };
             }, [vocabulary]);
 
             return (
-                <canvas 
-                    ref={canvasRef} 
-                    width={window.innerWidth} 
-                    height={window.innerHeight} 
-                />
+                <div>
+                    <div className="hud">
+                        <div className="prompt-label">Vertaal naar het Nederlands:</div>
+                        <div className="prompt-word">{currentQuestion ? currentQuestion.french : '...'}</div>
+                    </div>
+                    <div className="score-board">Score: {score}</div>
+                    <canvas 
+                        ref={canvasRef} 
+                        width={window.innerWidth} 
+                        height={window.innerHeight} 
+                    />
+                </div>
             );
         }
 
-        // --- MAIN APP & DATA FETCHING ---
         function App() {
             const [vocabData, setVocabData] = useState([]);
-            // Replace with your published Google Sheet CSV URL
             const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS5AyynEyE5XLtxjJI7mfIV7RxbFiOIPbLi35E4pT6-ZX5Jpkfokv3Hqi--PVV2xUSLBxf3Tcr8lEQy/pub?gid=0&single=true&output=csv"; 
 
             useEffect(() => {
@@ -86,23 +254,22 @@
                     download: true,
                     header: true,
                     complete: (results) => {
-                        setVocabData(results.data);
+                        // Filter out empty lines
+                        const cleanData = results.data.filter(item => item.French && item.Dutch);
+                        setVocabData(cleanData);
                     }
                 });
             }, []);
 
             return (
                 <div>
-                    <div className="hud">
-                        <h2>Target Word (French)</h2>
-                    </div>
-                    
-                    {vocabData.length > 0 ? (
-                        <GameCanvas vocabulary={vocabData} />
+                    {vocabData.length >= 4 ? (
+                        <VocabShooter vocabulary={vocabData} />
                     ) : (
-                        <p style={{ textAlign: 'center', marginTop: '50px' }}>
-                            Loading vocabulary...
-                        </p>
+                        <div style={{ textAlign: 'center', marginTop: '40vh', color: '#a0aec0' }}>
+                            <h2>Laden van woordenlijst...</h2>
+                            <p>Zorg dat er minimaal 4 woorden in de Google Sheet staan.</p>
+                        </div>
                     )}
                 </div>
             );
