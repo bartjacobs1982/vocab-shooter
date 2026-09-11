@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Crucial for mobile browser games to prevent zooming -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vocab Shooter</title>
+    
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #111; 
+            color: #fff; 
+            font-family: sans-serif; 
+        }
+        canvas { 
+            display: block; 
+        }
+        .hud { 
+            position: absolute; 
+            top: 20px; 
+            width: 100%; 
+            text-align: center; 
+            pointer-events: none; /* Lets touches pass through to the canvas */
+        }
+    </style>
+
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- Babel to compile JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- PapaParse to read the Google Sheet CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- CORE GAME LOOP ---
+        function GameCanvas({ vocabulary }) {
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+                let animationFrameId;
+
+                // Insert your shoot-'em-up canvas game loop here
+                const render = () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    // Example placeholder: Draw player ship
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fillRect(canvas.width / 2 - 15, canvas.height - 50, 30, 30);
+                    
+                    animationFrameId = requestAnimationFrame(render);
+                };
+                render();
+
+                return () => cancelAnimationFrame(animationFrameId);
+            }, [vocabulary]);
+
+            return (
+                <canvas 
+                    ref={canvasRef} 
+                    width={window.innerWidth} 
+                    height={window.innerHeight} 
+                />
+            );
+        }
+
+        // --- MAIN APP & DATA FETCHING ---
+        function App() {
+            const [vocabData, setVocabData] = useState([]);
+            // Replace with your published Google Sheet CSV URL
+            const sheetUrl = "YOUR_GOOGLE_SHEET_CSV_URL"; 
+
+            useEffect(() => {
+                Papa.parse(sheetUrl, {
+                    download: true,
+                    header: true,
+                    complete: (results) => {
+                        setVocabData(results.data);
+                    }
+                });
+            }, []);
+
+            return (
+                <div>
+                    <div className="hud">
+                        <h2>Target Word (French)</h2>
+                    </div>
+                    
+                    {vocabData.length > 0 ? (
+                        <GameCanvas vocabulary={vocabData} />
+                    ) : (
+                        <p style={{ textAlign: 'center', marginTop: '50px' }}>
+                            Loading vocabulary...
+                        </p>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
