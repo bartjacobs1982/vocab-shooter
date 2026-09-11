@@ -5,53 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Frans-Nederlands Vocab Shooter</title>
     <style>
-        * { 
-            box-sizing: border-box; 
-            user-select: none; 
-            -webkit-user-select: none; 
-        }
-        body { 
-            margin: 0; 
-            overflow: hidden; 
-            background: #0d0e15; 
-            color: #fff; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            touch-action: none;
-        }
-        canvas { 
-            display: block; 
-        }
-        .hud { 
-            position: absolute; 
-            top: 15px; 
-            left: 0;
-            width: 100%; 
-            text-align: center; 
-            pointer-events: none;
-            z-index: 10;
-        }
-        .prompt-label { 
-            font-size: 13px; 
-            color: #a0aec0; 
-            text-transform: uppercase; 
-            letter-spacing: 1px; 
-        }
-        .prompt-word { 
-            font-size: 26px; 
-            font-weight: bold; 
-            color: #63b3ed; 
-            margin-top: 4px; 
-            text-shadow: 0 0 10px rgba(99, 179, 237, 0.4);
-        }
-        .score-board { 
-            position: absolute; 
-            top: 15px; 
-            right: 20px; 
-            font-size: 18px; 
-            font-weight: bold; 
-            color: #48bb78; 
-            z-index: 10;
-        }
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body { margin: 0; overflow: hidden; background: #0d0e15; color: #fff; font-family: -apple-system, sans-serif; touch-action: none; }
+        canvas { display: block; }
+        .hud { position: absolute; top: 15px; left: 0; width: 100%; text-align: center; pointer-events: none; z-index: 10; }
+        .prompt-label { font-size: 13px; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px; }
+        .prompt-word { font-size: 26px; font-weight: bold; color: #63b3ed; margin-top: 4px; text-shadow: 0 0 10px rgba(99,179,237,0.4); }
+        .score-board { position: absolute; top: 15px; right: 20px; font-size: 18px; font-weight: bold; color: #48bb78; z-index: 10; }
     </style>
 
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -74,10 +34,10 @@
                 playerX: window.innerWidth / 2,
                 bullets: [],
                 targets: [],
-                currentQuestion: null
+                feedbacks: [],
+                isTransitioning: false
             });
 
-            // Prepare a round with 1 French word, its Dutch answer, and 3 incorrect choices
             const setupNewRound = (data) => {
                 if (!data || data.length < 4) return;
                 
@@ -93,19 +53,10 @@
                 }
 
                 const options = [correctItem.Dutch, ...distractors].sort(() => Math.random() - 0.5);
+                setCurrentQuestion({ french: correctItem.French, correctDutch: correctItem.Dutch });
+                gameState.current.isTransitioning = false;
 
-                const question = {
-                    french: correctItem.French,
-                    correctDutch: correctItem.Dutch,
-                    options: options
-                };
-
-                setCurrentQuestion(question);
-                gameState.current.currentQuestion = question;
-
-                // Position 4 falling targets across screen width
                 const columnWidth = window.innerWidth / 4;
-
                 gameState.current.targets = options.map((text, index) => ({
                     x: (index * columnWidth) + (columnWidth / 2),
                     y: 70,
@@ -113,7 +64,8 @@
                     isCorrect: text === correctItem.Dutch,
                     width: Math.min(columnWidth - 10, 85),
                     height: 40,
-                    speed: 0.4
+                    speed: 0.5,
+                    isDestroyed: false
                 }));
             };
 
@@ -126,90 +78,89 @@
                 const ctx = canvas.getContext('2d');
                 let animationId;
 
-                // Mobile touch and drag controls
-                const handleTouchMove = (e) => {
-                    if (e.touches.length > 0) {
-                        gameState.current.playerX = e.touches[0].clientX;
-                    }
+                const handleMove = (e) => {
+                    if (e.touches && e.touches.length > 0) gameState.current.playerX = e.touches[0].clientX;
+                    else if (e.clientX) gameState.current.playerX = e.clientX;
                 };
 
                 const handleShoot = (e) => {
-                    if (e.type === 'touchstart') {
-                        gameState.current.playerX = e.touches[0].clientX;
-                    }
-                    gameState.current.bullets.push({
-                        x: gameState.current.playerX,
-                        y: window.innerHeight - 60,
-                        speed: 8
-                    });
+                    handleMove(e);
+                    gameState.current.bullets.push({ x: gameState.current.playerX, y: window.innerHeight - 60, speed: 8 });
                 };
 
-                window.addEventListener('touchmove', handleTouchMove);
+                window.addEventListener('touchmove', handleMove);
+                window.addEventListener('mousemove', handleMove);
                 window.addEventListener('touchstart', handleShoot);
-                window.addEventListener('click', handleShoot);
+                window.addEventListener('mousedown', handleShoot);
 
-                // Main Render Loop
                 const render = () => {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     const state = gameState.current;
 
-                    // Draw Cannon/Ship
+                    // Draw Ship
                     ctx.fillStyle = '#63b3ed';
                     ctx.beginPath();
                     ctx.moveTo(state.playerX, window.innerHeight - 60);
                     ctx.lineTo(state.playerX - 18, window.innerHeight - 25);
                     ctx.lineTo(state.playerX + 18, window.innerHeight - 25);
-                    ctx.closePath();
                     ctx.fill();
 
-                    // Update & Draw Laser Bullets
+                    // Update & Draw Bullets
                     ctx.fillStyle = '#f6ad55';
                     for (let i = state.bullets.length - 1; i >= 0; i--) {
                         const b = state.bullets[i];
                         b.y -= b.speed;
-                        ctx.beginPath();
-                        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
-                        ctx.fill();
-
+                        ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI * 2); ctx.fill();
                         if (b.y < 0) state.bullets.splice(i, 1);
                     }
 
-                    // Update & Draw Falling Word Targets
-                    state.targets.forEach((target) => {
-                        target.y += target.speed;
-
+                    // Update & Draw Targets
+                    state.targets.forEach((t) => {
+                        if (t.isDestroyed) return;
+                        t.y += t.speed;
                         ctx.fillStyle = '#2d3748';
                         ctx.strokeStyle = '#4a5568';
                         ctx.lineWidth = 2;
-                        ctx.beginPath();
-                        ctx.roundRect(target.x - target.width/2, target.y, target.width, target.height, 8);
-                        ctx.fill();
-                        ctx.stroke();
-
+                        ctx.beginPath(); ctx.roundRect(t.x - t.width/2, t.y, t.width, t.height, 8);
+                        ctx.fill(); ctx.stroke();
                         ctx.fillStyle = '#ffffff';
                         ctx.font = 'bold 12px sans-serif';
                         ctx.textAlign = 'center';
-                        ctx.fillText(target.text, target.x, target.y + 24);
+                        ctx.fillText(t.text, t.x, t.y + 24);
                     });
 
-                    // Collision Detection: Bullet Hits Target
+                    // Update & Draw Floating Feedback Text
+                    for (let i = state.feedbacks.length - 1; i >= 0; i--) {
+                        const f = state.feedbacks[i];
+                        f.y -= 1; f.alpha -= 0.02;
+                        ctx.fillStyle = f.color;
+                        ctx.globalAlpha = Math.max(0, f.alpha);
+                        ctx.font = 'bold 16px sans-serif';
+                        ctx.fillText(f.text, f.x, f.y);
+                        ctx.globalAlpha = 1.0;
+                        if (f.alpha <= 0) state.feedbacks.splice(i, 1);
+                    }
+
+                    // Collision Detection
                     for (let bIndex = state.bullets.length - 1; bIndex >= 0; bIndex--) {
                         const b = state.bullets[bIndex];
                         for (let tIndex = 0; tIndex < state.targets.length; tIndex++) {
                             const t = state.targets[tIndex];
-
-                            if (
-                                b.x > t.x - t.width/2 &&
-                                b.x < t.x + t.width/2 &&
-                                b.y > t.y &&
-                                b.y < t.y + t.height
-                            ) {
+                            if (!t.isDestroyed && b.x > t.x - t.width/2 && b.x < t.x + t.width/2 && b.y > t.y && b.y < t.y + t.height) {
                                 state.bullets.splice(bIndex, 1);
+                                t.isDestroyed = true;
+
                                 if (t.isCorrect) {
                                     setScore(s => s + 10);
-                                    setupNewRound(vocabulary);
+                                    state.feedbacks.push({ x: t.x, y: t.y, text: "+10", color: '#48bb78', alpha: 1.0 });
+                                    
+                                    if (!state.isTransitioning) {
+                                        state.isTransitioning = true;
+                                        setTimeout(() => setupNewRound(vocabulary), 1000);
+                                    }
                                 } else {
                                     setScore(s => Math.max(0, s - 5));
+                                    state.feedbacks.push({ x: t.x, y: t.y, text: "Fout!", color: '#f56565', alpha: 1.0 });
                                 }
                                 break;
                             }
@@ -223,9 +174,10 @@
 
                 return () => {
                     cancelAnimationFrame(animationId);
-                    window.removeEventListener('touchmove', handleTouchMove);
+                    window.removeEventListener('touchmove', handleMove);
+                    window.removeEventListener('mousemove', handleMove);
                     window.removeEventListener('touchstart', handleShoot);
-                    window.removeEventListener('click', handleShoot);
+                    window.removeEventListener('mousedown', handleShoot);
                 };
             }, [vocabulary]);
 
@@ -236,11 +188,7 @@
                         <div className="prompt-word">{currentQuestion ? currentQuestion.french : '...'}</div>
                     </div>
                     <div className="score-board">Score: {score}</div>
-                    <canvas 
-                        ref={canvasRef} 
-                        width={window.innerWidth} 
-                        height={window.innerHeight} 
-                    />
+                    <canvas ref={canvasRef} width={window.innerWidth} height={window.innerHeight} />
                 </div>
             );
         }
@@ -251,26 +199,14 @@
 
             useEffect(() => {
                 Papa.parse(sheetUrl, {
-                    download: true,
-                    header: true,
-                    complete: (results) => {
-                        // Filter out empty lines
-                        const cleanData = results.data.filter(item => item.French && item.Dutch);
-                        setVocabData(cleanData);
-                    }
+                    download: true, header: true,
+                    complete: (results) => setVocabData(results.data.filter(item => item.French && item.Dutch))
                 });
             }, []);
 
             return (
                 <div>
-                    {vocabData.length >= 4 ? (
-                        <VocabShooter vocabulary={vocabData} />
-                    ) : (
-                        <div style={{ textAlign: 'center', marginTop: '40vh', color: '#a0aec0' }}>
-                            <h2>Laden van woordenlijst...</h2>
-                            <p>Zorg dat er minimaal 4 woorden in de Google Sheet staan.</p>
-                        </div>
-                    )}
+                    {vocabData.length >= 4 ? <VocabShooter vocabulary={vocabData} /> : <div style={{ textAlign: 'center', marginTop: '40vh', color: '#a0aec0' }}><h2>Laden...</h2></div>}
                 </div>
             );
         }
