@@ -225,18 +225,20 @@
                 setCurrentQuestion({ word: correctItem[promptField], correctAnswer: correctItem[answerField], promptLabel });
                 gameState.current.isTransitioning = false;
 
-                // 2x2 grid instead of 4 narrow columns: each cloud gets roughly
-                // half the screen's width, which is what actually fixes long
-                // words overlapping on narrow mobile screens.
+                // All 4 clouds sit in a single row, side by side, so none of
+                // them ever blocks another — a bullet aimed at one word never
+                // has to pass through a different word first. Long words are
+                // kept readable by shrinking/wrapping the text (see
+                // fitWordToCloud), not by stacking clouds behind each other.
                 const w = window.innerWidth;
-                const cloudWidth = Math.min(w * 0.44, 260);
-                const cloudHeight = 64;
-                const colX = [w * 0.27, w * 0.73];
-                const rowY = [100, 100 + cloudHeight + 36];
+                const columnWidth = w / 4;
+                const cloudWidth = Math.min(columnWidth - 8, 150);
+                const cloudHeight = 56;
+                const rowY = 100;
 
                 gameState.current.targets = options.map((text, index) => ({
-                    x: colX[index % 2],
-                    y: rowY[Math.floor(index / 2)],
+                    x: (index * columnWidth) + (columnWidth / 2),
+                    y: rowY,
                     text: text,
                     isCorrect: text === correctItem[answerField],
                     width: cloudWidth,
@@ -370,7 +372,7 @@
                         if (b.y < 0) state.bullets.splice(i, 1);
                     }
 
-                    // Update & Draw Targets (cloud word-bubbles, 2x2 grid)
+                    // Update & Draw Targets (cloud word-bubbles, single row)
                     state.targets.forEach((tgt) => {
                         if (tgt.isDestroyed) return;
                         tgt.y += tgt.speed;
