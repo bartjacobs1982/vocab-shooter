@@ -25,7 +25,7 @@
         }
         .prompt-label {
             font-size: 15px;
-            font-weight: 600;
+            font-weight: 700;
             color: #7A4FBF;
             letter-spacing: 0.3px;
         }
@@ -139,6 +139,47 @@
             ctx.closePath();
         }
 
+        // Shrinks the font until the word fits inside the cloud's usable width,
+        // but never below a size a young child can still comfortably read.
+        // If it still doesn't fit at that minimum, the word wraps onto a
+        // second line instead of spilling out and overlapping neighbours.
+        function fitWordToCloud(ctx, text, maxWidth, baseSize, minSize) {
+            let size = baseSize;
+            ctx.font = `800 ${size}px "Baloo 2", sans-serif`;
+            while (size > minSize && ctx.measureText(text).width > maxWidth) {
+                size -= 1;
+                ctx.font = `800 ${size}px "Baloo 2", sans-serif`;
+            }
+            if (ctx.measureText(text).width <= maxWidth) {
+                return { size, lines: [text] };
+            }
+            // Still too wide at the smallest readable size: break into two lines.
+            let a, b;
+            const spaceIndex = text.indexOf(' ');
+            if (spaceIndex > -1) {
+                a = text.slice(0, spaceIndex);
+                b = text.slice(spaceIndex + 1);
+            } else {
+                const mid = Math.ceil(text.length / 2);
+                a = text.slice(0, mid) + '-';
+                b = text.slice(mid);
+            }
+            return { size, lines: [a, b] };
+        }
+
+        // Draws a word with a thick white halo behind it so it stays crisp
+        // and readable on top of any of the pastel cloud colors.
+        function drawReadableText(ctx, text, x, y, size) {
+            ctx.font = `800 ${size}px "Baloo 2", sans-serif`;
+            ctx.lineJoin = 'round';
+            ctx.miterLimit = 2;
+            ctx.lineWidth = size * 0.28;
+            ctx.strokeStyle = '#ffffff';
+            ctx.strokeText(text, x, y);
+            ctx.fillStyle = '#3A2158';
+            ctx.fillText(text, x, y);
+        }
+
         function VocabShooter({ vocabulary }) {
             const canvasRef = useRef(null);
             const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -159,29 +200,47 @@
             const setupNewRound = (data) => {
                 if (!data || data.length < 4) return;
 
+                // Randomly quiz French -> Dutch or Dutch -> French each round,
+                // using column 1 (French) and column 2 (Dutch) of the sheet
+                // in both directions.
+                const direction = Math.random() < 0.5 ? 'fr-nl' : 'nl-fr';
+                const promptField = direction === 'fr-nl' ? 'French' : 'Dutch';
+                const answerField = direction === 'fr-nl' ? 'Dutch' : 'French';
+                const promptLabel = direction === 'fr-nl'
+                    ? `Vertaal naar het Nederlands, ${PLAYER_NAME}:`
+                    : `Vertaal naar het Frans, ${PLAYER_NAME}:`;
+
                 const randomIndex = Math.floor(Math.random() * data.length);
                 const correctItem = data[randomIndex];
 
                 const distractors = [];
                 while (distractors.length < 3) {
                     const rand = data[Math.floor(Math.random() * data.length)];
-                    if (rand.Dutch !== correctItem.Dutch && !distractors.includes(rand.Dutch)) {
-                        distractors.push(rand.Dutch);
+                    if (rand[answerField] !== correctItem[answerField] && !distractors.includes(rand[answerField])) {
+                        distractors.push(rand[answerField]);
                     }
                 }
 
-                const options = [correctItem.Dutch, ...distractors].sort(() => Math.random() - 0.5);
-                setCurrentQuestion({ french: correctItem.French, correctDutch: correctItem.Dutch });
+                const options = [correctItem[answerField], ...distractors].sort(() => Math.random() - 0.5);
+                setCurrentQuestion({ word: correctItem[promptField], correctAnswer: correctItem[answerField], promptLabel });
                 gameState.current.isTransitioning = false;
 
-                const columnWidth = window.innerWidth / 4;
+                // 2x2 grid instead of 4 narrow columns: each cloud gets roughly
+                // half the screen's width, which is what actually fixes long
+                // words overlapping on narrow mobile screens.
+                const w = window.innerWidth;
+                const cloudWidth = Math.min(w * 0.44, 260);
+                const cloudHeight = 64;
+                const colX = [w * 0.27, w * 0.73];
+                const rowY = [100, 100 + cloudHeight + 36];
+
                 gameState.current.targets = options.map((text, index) => ({
-                    x: (index * columnWidth) + (columnWidth / 2),
-                    y: 100,
+                    x: colX[index % 2],
+                    y: rowY[Math.floor(index / 2)],
                     text: text,
-                    isCorrect: text === correctItem.Dutch,
-                    width: Math.min(columnWidth - 6, 100),
-                    height: 52,
+                    isCorrect: text === correctItem[answerField],
+                    width: cloudWidth,
+                    height: cloudHeight,
                     speed: 0.5,
                     color: CLOUD_COLORS[index % CLOUD_COLORS.length],
                     bob: Math.random() * Math.PI * 2,
@@ -311,7 +370,7 @@
                         if (b.y < 0) state.bullets.splice(i, 1);
                     }
 
-                    // Update & Draw Targets (cloud word-bubbles)
+                    // Update & Draw Targets (cloud word-bubbles, 2x2 grid)
                     state.targets.forEach((tgt) => {
                         if (tgt.isDestroyed) return;
                         tgt.y += tgt.speed;
@@ -330,11 +389,20 @@
                         ctx.strokeStyle = '#ffffff';
                         ctx.stroke();
 
-                        ctx.fillStyle = '#4A2E6B';
-                        ctx.font = '800 15px "Baloo 2", sans-serif';
+                        // Auto-fit the word big and bold: shrink only as much as
+                        // needed to fit, never below a child-readable size, and
+                        // wrap to two lines rather than shrink further if needed.
+                        const maxTextWidth = tgt.width - 26;
+                        const fit = fitWordToCloud(ctx, tgt.text, maxTextWidth, 21, 15);
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillText(tgt.text, tgt.x, wobbleY + tgt.height / 2 + 2);
+                        const cy = wobbleY + tgt.height / 2 + 2;
+                        if (fit.lines.length === 1) {
+                            drawReadableText(ctx, fit.lines[0], tgt.x, cy, fit.size);
+                        } else {
+                            drawReadableText(ctx, fit.lines[0], tgt.x, cy - fit.size * 0.6, fit.size);
+                            drawReadableText(ctx, fit.lines[1], tgt.x, cy + fit.size * 0.6, fit.size);
+                        }
                     });
 
                     // Confetti burst
@@ -357,9 +425,8 @@
                         f.y -= 1.2; f.alpha -= 0.018;
                         ctx.save();
                         ctx.globalAlpha = Math.max(0, f.alpha);
+                        drawReadableText(ctx, f.text, f.x, f.y, 19);
                         ctx.fillStyle = f.color;
-                        ctx.font = '800 20px "Baloo 2", sans-serif';
-                        ctx.textAlign = 'center';
                         ctx.fillText(f.text, f.x, f.y);
                         ctx.restore();
                         if (f.alpha <= 0) state.feedbacks.splice(i, 1);
@@ -420,8 +487,8 @@
                 <div>
                     <div className="name-badge">🦄 {PLAYER_NAME}</div>
                     <div className="hud">
-                        <div className="prompt-label">Vertaal naar het Nederlands, {PLAYER_NAME}:</div>
-                        <div className="prompt-word">{currentQuestion ? currentQuestion.french : '...'}</div>
+                        <div className="prompt-label">{currentQuestion ? currentQuestion.promptLabel : `Vertaal naar het Nederlands, ${PLAYER_NAME}:`}</div>
+                        <div className="prompt-word">{currentQuestion ? currentQuestion.word : '...'}</div>
                     </div>
                     <div className="score-board">⭐ Score: {score}</div>
                     <canvas ref={canvasRef} width={window.innerWidth} height={window.innerHeight} />
@@ -446,7 +513,7 @@
                     <div className="start-screen">
                         <div className="big-unicorn">🦄🌈</div>
                         <h1>Isaline's Eenhoorn Woordenspel</h1>
-                        <p>Schiet de juiste Nederlandse vertaling van het Franse woord kapot en verdien sterren!</p>
+                        <p>Schiet het juiste woord kapot — soms in het Nederlands, soms in het Frans — en verdien sterren!</p>
                         {vocabData.length >= 4 ? (
                             <button className="start-btn" onClick={() => setStarted(true)}>Start het spel!</button>
                         ) : (
